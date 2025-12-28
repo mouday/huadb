@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include "table/table_page.h"
 
 #include <sstream>
@@ -31,13 +33,23 @@ slotid_t TablePage::InsertRecord(std::shared_ptr<Record> record, xid_t xid, cid_
   // 在记录头添加事务信息（xid 和 cid）
   // LAB 3 BEGIN
 
+  db_size_t slot_id = this->GetRecordCount();
   // 维护 lower 和 upper 指针
+  *lower_ += sizeof(Slot);
+  *upper_ -= record->GetSize();
   // 设置 slots 数组
+  Slot slot = {.offset_ = *upper_, .size_ = record->GetSize()};
+  slots_[slot_id] = slot;
+
   // 将 record 写入 page data
+  record->SerializeTo(page_data_ + slots_[slot_id].offset_);
+
   // 将 page 标记为 dirty
+  page_->SetDirty();
   // 返回插入的 slot id
+
   // LAB 1 BEGIN
-  return 0;
+  return slot_id;
 }
 
 void TablePage::DeleteRecord(slotid_t slot_id, xid_t xid) {
@@ -48,6 +60,12 @@ void TablePage::DeleteRecord(slotid_t slot_id, xid_t xid) {
   // 可使用 Record::DeserializeHeaderFrom 函数读取记录头
   // 将 page 标记为 dirty
   // LAB 1 BEGIN
+  std::shared_ptr<Record> record = std::make_shared<Record>();
+  record->DeserializeHeaderFrom(page_data_ + slots_[slot_id].offset_);
+  // 标记删除
+  record->SetDeleted(true);
+  record->SerializeHeaderTo(page_data_ + slots_[slot_id].offset_);
+  page_->SetDirty();
 }
 
 void TablePage::UpdateRecordInPlace(const Record &record, slotid_t slot_id) {
@@ -57,9 +75,19 @@ void TablePage::UpdateRecordInPlace(const Record &record, slotid_t slot_id) {
 
 std::shared_ptr<Record> TablePage::GetRecord(Rid rid, const ColumnList &column_list) {
   // 根据 slot_id 获取 record
+  slotid_t slot_id = rid.slot_id_;
+
+  if (slot_id >= this->GetRecordCount()) {
+    return nullptr;
+  }
+
   // 新建 record 并设置 rid
+  std::shared_ptr<Record> record = std::make_shared<Record>();
+  record->DeserializeFrom(page_data_ + slots_[slot_id].offset_, column_list);
+  record->SetRid(rid);
+
   // LAB 1 BEGIN
-  return nullptr;
+  return record;
 }
 
 void TablePage::UndoDeleteRecord(slotid_t slot_id) {
